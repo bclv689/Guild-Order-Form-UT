@@ -168,7 +168,7 @@
         <ul style="margin:0;padding-left:18px;font-size:13.5px;color:#4a4636;line-height:1.7;">
           <li>If something shows out of stock on Bullseye's site, order it anyway — they often find stock for us.</li>
           <li>Order full or half sheets where you can. It helps the group order qualify for cheaper shipping and avoid UPS surcharges.</li>
-          <li>Please don't contact Bullseye directly about this order — questions or special requests go through Kerry or Kevin.</li>
+          <li>Please don't contact Bullseye directly about this order — questions or special requests go through the order coordinator.</li>
         </ul>
       </div>
 
@@ -221,6 +221,7 @@
     <div class="card">
       <h2>By participant</h2>
       <div class="sub">For collecting payment. One row per person, totaled across all their submissions.</div>
+      <div class="sub" style="margin-top:4px;">Need to change or remove an order? Reach out to the order coordinator — they can adjust it in the shared list.</div>
       <div id="peopleWrap" class="loading">Loading…</div>
     </div>
     <div class="card">
@@ -568,7 +569,8 @@ function showConfirmation(order){
        for your total. If you don't use Venmo, make other arrangements with Kerry directly.
        Prompt payment is appreciated — he's shouldering the risk on this order.
      </div>
-     <div class="disclosure" style="text-align:left;margin-top:10px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off before the group order is finalized.</div>`;
+     <div class="disclosure" style="text-align:left;margin-top:10px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off before the group order is finalized.</div>
+     <div class="disclosure" style="text-align:left;margin-top:10px;">Need to change or remove this order? Reach out to the order coordinator — they can adjust it in the shared list for you.</div>`;
 }
 
 document.getElementById('submitAnotherBtn').addEventListener('click', () => {
@@ -666,7 +668,7 @@ function renderPeopleTable(submissions){
     if (s.notes) byPerson[key].notes.push(s.notes);
   });
   const sorted = Object.values(byPerson).sort((a, b) => new Date(b.lastSubmitted) - new Date(a.lastSubmitted));
-  const rows = sorted.map(p => {
+  const rows = sorted.map((p, i) => {
     const when = p.lastSubmitted ? new Date(p.lastSubmitted).toLocaleString() : '';
     const notesHtml = p.notes.length ? `<div style="font-size:12px;color:#7a7566;margin-top:2px;">Note: ${p.notes.join(' | ')}</div>` : '';
     return `<tr>
@@ -674,12 +676,86 @@ function renderPeopleTable(submissions){
       <td class="num">$${p.total.toFixed(2)}</td>
       <td class="num" style="color:#3d6b4f;">$${p.discount.toFixed(2)}</td>
       <td class="num" style="white-space:nowrap;">${when}</td>
+      <td style="text-align:right;">
+        <a href="#" class="remove-order-link" data-idx="${i}" style="color:#b3432b;font-size:12px;text-decoration:none;">Remove</a>
+        <div id="removeConfirm-${i}" style="display:none;margin-top:6px;">
+          <input type="email" id="removeEmail-${i}" placeholder="Type your email to confirm" style="font-size:12px;padding:5px 7px;width:180px;">
+          <button type="button" class="remove-confirm-btn" data-idx="${i}" data-email="${p.email}" style="font-size:12px;padding:5px 9px;background:#b3432b;color:#fff;border:none;border-radius:6px;cursor:pointer;">Confirm</button>
+          <button type="button" class="remove-cancel-btn" data-idx="${i}" style="font-size:12px;padding:5px 9px;background:none;border:1px solid #d8cfb4;border-radius:6px;cursor:pointer;">Cancel</button>
+          <div id="removeError-${i}" class="error-msg" style="margin-top:4px;"></div>
+        </div>
+      </td>
     </tr>`;
   }).join('');
   peopleWrap.innerHTML = `<table class="rollup-table">
-    <thead><tr><th style="text-align:left;">Name</th><th style="text-align:right;">Est. Order Total</th><th style="text-align:right;">Est. Discount</th><th style="text-align:right;">Submitted</th></tr></thead>
+    <thead><tr><th style="text-align:left;">Name</th><th style="text-align:right;">Est. Order Total</th><th style="text-align:right;">Est. Discount</th><th style="text-align:right;">Submitted</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+
+  // "Remove" reveals an inline email-confirmation box rather than deleting immediately.
+  peopleWrap.querySelectorAll('.remove-order-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById(`removeConfirm-${link.dataset.idx}`).style.display = 'block';
+      link.style.display = 'none';
+    });
+  });
+  peopleWrap.querySelectorAll('.remove-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = btn.dataset.idx;
+      document.getElementById(`removeConfirm-${idx}`).style.display = 'none';
+      const link = peopleWrap.querySelector(`.remove-order-link[data-idx="${idx}"]`);
+      if (link) link.style.display = 'inline';
+    });
+  });
+  peopleWrap.querySelectorAll('.remove-confirm-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteOrder(btn.dataset.idx, btn.dataset.email));
+  });
+}
+
+// Deletes every submission tied to `email`, but only after the person confirms
+// by re-typing that same email — a deliberate speed bump so people can only
+// remove their own order, not anyone else's.
+async function deleteOrder(idx, email){
+  const enteredEmail = document.getElementById(`removeEmail-${idx}`).value.trim();
+  const errEl = document.getElementById(`removeError-${idx}`);
+  errEl.textContent = '';
+
+  if (!enteredEmail){
+    errEl.textContent = 'Enter the email you used to submit this order.';
+    return;
+  }
+  if (enteredEmail.toLowerCase() !== email.toLowerCase()){
+    errEl.textContent = "That email doesn't match this order.";
+    return;
+  }
+
+  const btn = document.querySelector(`.remove-confirm-btn[data-idx="${idx}"]`);
+  btn.disabled = true; btn.textContent = 'Removing…';
+
+  const payload = JSON.stringify({ action: 'delete', email: email, confirmEmail: enteredEmail });
+  try {
+    const resp = await fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: payload
+    });
+    const result = await resp.json();
+    if (!result.success){
+      errEl.textContent = result.error || 'Could not remove this order.';
+      btn.disabled = false; btn.textContent = 'Confirm';
+      return;
+    }
+    loadSummary(); // refresh both tables
+  } catch (err) {
+    // Same Apps Script redirect/CORS quirk as order submission — fall back to a
+    // blind no-cors request, then just refresh and let the person see whether
+    // it actually disappeared.
+    try {
+      await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: payload });
+    } catch (e2) { /* ignore — refresh below will show the true state either way */ }
+    loadSummary();
+  }
 }
 
 // Item-level rollup across all (or, if filtered, one participant's) submissions.
