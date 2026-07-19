@@ -233,6 +233,7 @@
           <option value="">All participants</option>
         </select>
       </div>
+      <button type="button" class="btn-secondary" id="downloadRollupCsvBtn" style="margin-bottom:12px;">Download this list as CSV</button>
       <div id="rollupWrap" class="loading">Loading…</div>
     </div>
   </div>
@@ -651,6 +652,90 @@ function populateParticipantFilter(submissions){
 
 // One row per submission — deliberately NOT consolidated by person, so repeat
 // orders from the same guild member each show up as their own line.
+// Consolidates one person's items across all their submissions by SKU —
+// this is the "packing list" shape the coordinator actually wants: one line
+// per distinct item with a combined quantity, not one line per submission.
+function getConsolidatedItemsForEmail(email){
+  const subs = allSubmissions.filter(s => (s.email || '').toLowerCase() === email.toLowerCase());
+  const bySku = {};
+  subs.forEach(s => {
+    (s.items || []).forEach(i => {
+      if (!bySku[i.sku]) {
+        bySku[i.sku] = { name: i.name, sku: i.sku, qty: 0, price: i.price,
+          retailPrice: (i.retailPrice != null) ? i.retailPrice : i.price };
+      }
+      bySku[i.sku].qty += i.qty || 0;
+    });
+  });
+  return Object.values(bySku).sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+function csvEscape(val){
+  const s = String(val == null ? '' : val);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function downloadCsv(filename, rows){
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// One person's packing list as CSV — opens directly in Excel/Sheets.
+function downloadParticipantCSV(email, name){
+  const items = getConsolidatedItemsForEmail(email);
+  const rows = [['Item', 'SKU', 'Qty', 'Unit Price', 'Est. Discount', 'Est. Subtotal']];
+  let subtotal = 0, totalDiscount = 0;
+  items.forEach(i => {
+    const lineDiscount = i.qty * Math.max(0, i.retailPrice - i.price);
+    const lineSubtotal = i.qty * i.price;
+    subtotal += lineSubtotal;
+    totalDiscount += lineDiscount;
+    rows.push([i.name, i.sku, i.qty, i.retailPrice.toFixed(2), lineDiscount.toFixed(2), lineSubtotal.toFixed(2)]);
+  });
+  rows.push(['', '', '', 'Total', totalDiscount.toFixed(2), subtotal.toFixed(2)]);
+  downloadCsv(`${name.replace(/\s+/g, '_')}_order.csv`, rows);
+}
+
+// One person's packing list as a clean printable page — opens in a new tab
+// and triggers the browser's print dialog, where "Save as PDF" is a built-in
+// option (avoids adding a whole PDF-generation library for this).
+function printParticipantOrder(email, name){
+  const items = getConsolidatedItemsForEmail(email);
+  let subtotal = 0, discount = 0;
+  const rowsHtml = items.map(i => {
+    const lineDiscount = i.qty * Math.max(0, i.retailPrice - i.price);
+    const lineSubtotal = i.qty * i.price;
+    subtotal += lineSubtotal; discount += lineDiscount;
+    return `<tr><td>${i.name}</td><td class="mono">${i.sku}</td><td class="num">${i.qty}</td><td class="num">$${i.retailPrice.toFixed(2)}</td><td class="num">$${lineDiscount.toFixed(2)}</td><td class="num">$${lineSubtotal.toFixed(2)}</td></tr>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html><head><title>Order — ${name}</title><style>
+    body{font-family:Arial,sans-serif;padding:28px;color:#222;}
+    h1{font-size:19px;margin:0 0 2px;} .meta{color:#666;margin-bottom:18px;font-size:13px;}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    th,td{padding:7px 8px;border-bottom:1px solid #ddd;text-align:left;}
+    th{text-transform:uppercase;font-size:10.5px;color:#666;letter-spacing:.03em;}
+    .num{text-align:right;} .mono{font-family:monospace;color:#888;font-size:11px;}
+    .total-row td{font-weight:bold;border-top:2px solid #333;}
+    </style></head><body>
+    <h1>Glass Art Guild of Utah — Bullseye Group Order</h1>
+    <div class="meta">${name} &lt;${email}&gt; — printed ${new Date().toLocaleString()}</div>
+    <table><thead><tr><th>Item</th><th>SKU</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Est. Discount</th><th class="num">Est. Subtotal</th></tr></thead>
+    <tbody>${rowsHtml}
+      <tr class="total-row"><td colspan="4">Total</td><td class="num">$${discount.toFixed(2)}</td><td class="num">$${subtotal.toFixed(2)}</td></tr>
+    </tbody></table>
+    </body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300); // small delay so content is painted before the print dialog opens
+}
+
 function renderPeopleTable(submissions){
   const peopleWrap = document.getElementById('peopleWrap');
   if (submissions.length === 0){
@@ -677,6 +762,8 @@ function renderPeopleTable(submissions){
       <td class="num" style="color:#3d6b4f;">$${p.discount.toFixed(2)}</td>
       <td class="num" style="white-space:nowrap;">${when}</td>
       <td style="text-align:right;">
+        <a href="#" class="print-order-link" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="color:var(--cobalt);font-size:12px;text-decoration:none;margin-right:8px;">Print</a>
+        <a href="#" class="csv-order-link" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="color:var(--cobalt);font-size:12px;text-decoration:none;margin-right:8px;">CSV</a>
         <a href="#" class="remove-order-link" data-idx="${i}" style="color:#b3432b;font-size:12px;text-decoration:none;">Remove</a>
         <div id="removeConfirm-${i}" style="display:none;margin-top:6px;">
           <input type="email" id="removeEmail-${i}" placeholder="Type your email to confirm" style="font-size:12px;padding:5px 7px;width:180px;">
@@ -710,6 +797,18 @@ function renderPeopleTable(submissions){
   });
   peopleWrap.querySelectorAll('.remove-confirm-btn').forEach(btn => {
     btn.addEventListener('click', () => deleteOrder(btn.dataset.idx, btn.dataset.email));
+  });
+  peopleWrap.querySelectorAll('.print-order-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      printParticipantOrder(link.dataset.email, link.dataset.name);
+    });
+  });
+  peopleWrap.querySelectorAll('.csv-order-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      downloadParticipantCSV(link.dataset.email, link.dataset.name);
+    });
   });
 }
 
@@ -808,6 +907,35 @@ function renderRollup(submissions, filterName){
 
 document.getElementById('participantFilter').addEventListener('change', (e) => {
   renderRollup(allSubmissions, e.target.value);
+});
+
+// Exports whatever the rollup table is currently showing (respects the
+// participant filter) — this is the actual pick/order list for the coordinator.
+document.getElementById('downloadRollupCsvBtn').addEventListener('click', () => {
+  const filterName = document.getElementById('participantFilter').value;
+  const filtered = filterName
+    ? allSubmissions.filter(s => s.name === filterName)
+    : allSubmissions;
+  const grouped = {};
+  filtered.forEach(sub => {
+    (sub.items || []).forEach(i => {
+      const key = i.sku + '|' + sub.name;
+      if (!grouped[key]) grouped[key] = { name: i.name, sku: i.sku, participant: sub.name, qty: 0, total: 0 };
+      grouped[key].qty += i.qty || 0;
+      grouped[key].total += (i.qty || 0) * (i.price || 0);
+    });
+  });
+  const groupRows = Object.values(grouped).sort((a, b) =>
+    (a.participant < b.participant ? -1 : a.participant > b.participant ? 1 : 0) || (a.name < b.name ? -1 : 1));
+  const rows = [['Participant', 'Item', 'SKU', 'Total Qty', 'Total $']];
+  let grandTotal = 0;
+  groupRows.forEach(d => {
+    grandTotal += d.total;
+    rows.push([d.participant, d.name, d.sku, d.qty, d.total.toFixed(2)]);
+  });
+  rows.push(['', '', '', 'Grand Total', grandTotal.toFixed(2)]);
+  const filenamePart = filterName ? filterName.replace(/\s+/g, '_') : 'all';
+  downloadCsv(`guild_order_rollup_${filenamePart}.csv`, rows);
 });
 </script>
 </body>
