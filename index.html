@@ -78,6 +78,12 @@
   .result-name{ flex:1; font-size:13.8px; }
   .result-cat{ font-size:11px; color:var(--muted); margin-right:6px; }
   .result-price{ font-family:'IBM Plex Mono',monospace; font-size:13px; color:#4a4636; white-space:nowrap; }
+  .v-badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:16px; height:16px; border-radius:50%; background:var(--cobalt);
+    color:#fff; font-size:10px; font-weight:700; font-family:'Public Sans',sans-serif;
+    margin-right:4px; vertical-align:middle;
+  }
   .result-add{ background:var(--cobalt); color:#fff; border:none; border-radius:6px; padding:6px 10px; font-size:12px; font-weight:600; cursor:pointer; }
   .result-add:hover{ background:var(--cobalt-deep); }
   .no-results{ padding:16px; color:var(--muted); font-size:13.5px; text-align:center; }
@@ -158,6 +164,7 @@
       <div class="card">
         <h2>Find products</h2>
         <div class="sub">Search by color, item type, or SKU. 3,125 catalog items — sheet glass, frit, stringer, rod, Tekta, molds, billet, confetti, ribbon, mixed colors, dichroic, Color Line, and supplies.</div>
+        <div class="sub" style="margin-top:6px;">Items marked <span class="v-badge" style="margin-right:0;">V</span> are eligible for the guild's volume discount — price shown already reflects it.</div>
         <div class="search-wrap">
           <input type="text" id="searchInput" placeholder="e.g. &quot;turquoise&quot;, &quot;stringer&quot;, &quot;GlasTac&quot;, or a SKU...">
           <div id="searchResults"></div>
@@ -273,6 +280,14 @@ function priceHtml(item, size){
   return `<span style="${cls}">$${item.price.toFixed(2)}</span>`;
 }
 
+// Simple single-price display for search results — a "V" badge marks volume-discount
+// eligibility instead of showing both retail and discounted numbers (too cluttered across
+// a long results list). The full strikethrough breakdown still shows in the cart/confirmation.
+function priceHtmlSimple(item){
+  const badge = item.eligible ? '<span class="v-badge" title="Volume discount eligible">V</span>' : '';
+  return `${badge}$${effectivePrice(item).toFixed(2)}`;
+}
+
 // ---------- State ----------
 let cart = []; // {sku, name, category, price, qty}
 
@@ -306,7 +321,7 @@ function renderResults(query){
         ${swatchHtml}
         <span class="result-cat">${item.category}</span>
         <span class="result-name">${item.name} <span class="mono" style="color:#a39c86;font-size:11px;">(${item.sku})</span></span>
-        <span class="result-price mono">${priceHtml(item)}</span>
+        <span class="result-price mono">${priceHtmlSimple(item)}</span>
         <button class="result-add" type="button">Add</button>
       </div>`;
   }).join('');
@@ -370,7 +385,8 @@ function renderCart(){
       <tr class="cart-total-row"><td colspan="3">Subtotal</td><td class="num">$${total.toFixed(2)}</td><td></td></tr>
     </tbody>
   </table>
-  <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail.</div>`;
+  <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail.</div>
+  <div class="disclosure" style="margin-top:10px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off.</div>`;
 }
 
 document.getElementById('cartWrap').addEventListener('input', (e) => {
@@ -456,17 +472,47 @@ function showConfirmation(order){
   document.getElementById('orderForm').style.display = 'none';
   const cv = document.getElementById('confirmView');
   cv.style.display = 'block';
-  const total = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const itemLines = order.items.map(i =>
-    `<div style="display:flex;justify-content:space-between;font-size:13.5px;padding:4px 0;border-bottom:1px solid #f0ead9;">
-      <span>${i.name} ${i.qty > 1 ? '× ' + i.qty : ''}</span><span class="mono">$${(i.price*i.qty).toFixed(2)}</span>
-    </div>`).join('');
+
+  let total = 0;
+  let savedTotal = 0;
+  const rows = order.items.map(i => {
+    const ext = i.qty * i.price;
+    total += ext;
+    const eligible = i.retailPrice != null && i.retailPrice > i.price;
+    if (eligible) savedTotal += i.qty * (i.retailPrice - i.price);
+    const priceCell = eligible
+      ? `<span style="text-decoration:line-through;color:#a39c86;font-size:12px;">$${i.retailPrice.toFixed(2)}</span> <span style="color:#a5620f;font-weight:700;font-size:12px;">$${i.price.toFixed(2)}</span>`
+      : `<span style="font-size:12px;">$${i.price.toFixed(2)}</span>`;
+    return `<tr>
+      <td style="text-align:left;padding:6px 4px;border-bottom:1px solid #f0ead9;">${i.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${i.sku}</span></td>
+      <td style="text-align:center;padding:6px 4px;border-bottom:1px solid #f0ead9;">${i.qty}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;white-space:nowrap;">${priceCell}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;" class="mono">$${ext.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  const savedRow = savedTotal > 0
+    ? `<tr><td colspan="3" style="text-align:left;color:#3d6b4f;font-size:12.5px;padding:4px;">Guild discount savings</td><td class="mono" style="text-align:right;color:#3d6b4f;font-size:12.5px;padding:4px;">-$${savedTotal.toFixed(2)}</td></tr>`
+    : '';
+
   document.getElementById('confirmSummary').innerHTML =
-    `${itemLines}
-     ${order.notes ? `<div style="margin-top:8px;font-size:13px;color:#7a7566;"><strong>Notes:</strong> ${order.notes}</div>` : ''}
+    `<table style="width:100%;border-collapse:collapse;">
+       <thead><tr>
+         <th style="text-align:left;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Item</th>
+         <th style="text-align:center;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Qty</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Unit</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Ext.</th>
+       </tr></thead>
+       <tbody>
+         ${rows}
+         ${savedRow}
+       </tbody>
+     </table>
+     ${order.notes ? `<div style="margin-top:8px;font-size:13px;color:#7a7566;text-align:left;"><strong>Notes:</strong> ${order.notes}</div>` : ''}
      <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:8px;margin-top:6px;border-top:2px solid #e4dac2;">
        <span>Subtotal</span><span class="mono">$${total.toFixed(2)}</span>
-     </div>`;
+     </div>
+     <div class="disclosure" style="text-align:left;margin-top:14px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off before the group order is finalized.</div>`;
 }
 
 document.getElementById('submitAnotherBtn').addEventListener('click', () => {
