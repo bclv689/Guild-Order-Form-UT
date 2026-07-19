@@ -219,7 +219,7 @@
   <div id="tab-summary" style="display:none;">
     <div class="card">
       <h2>By participant</h2>
-      <div class="sub">For collecting payment. Each submission is its own row.</div>
+      <div class="sub">For collecting payment. One row per person, totaled across all their submissions.</div>
       <div id="peopleWrap" class="loading">Loading…</div>
     </div>
     <div class="card">
@@ -605,41 +605,52 @@ function renderPeopleTable(submissions){
     peopleWrap.innerHTML = '<div class="empty-cart">No orders submitted yet.</div>';
     return;
   }
-  const sorted = submissions.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  const rows = sorted.map(s => {
-    const total = submissionTotal(s);
-    const when = s.timestamp ? new Date(s.timestamp).toLocaleString() : '';
-    const notesHtml = s.notes ? `<div style="font-size:12px;color:#7a7566;margin-top:2px;">Note: ${s.notes}</div>` : '';
+  // Consolidated: one row per person, summing across every submission they made.
+  const byPerson = {};
+  submissions.forEach(s => {
+    const key = (s.email || s.name || '').toLowerCase();
+    if (!byPerson[key]) byPerson[key] = { name: s.name, email: s.email, total: 0, lastSubmitted: s.timestamp, notes: [] };
+    byPerson[key].total += submissionTotal(s);
+    if (new Date(s.timestamp) > new Date(byPerson[key].lastSubmitted)) byPerson[key].lastSubmitted = s.timestamp;
+    if (s.notes) byPerson[key].notes.push(s.notes);
+  });
+  const sorted = Object.values(byPerson).sort((a, b) => new Date(b.lastSubmitted) - new Date(a.lastSubmitted));
+  const rows = sorted.map(p => {
+    const when = p.lastSubmitted ? new Date(p.lastSubmitted).toLocaleString() : '';
+    const notesHtml = p.notes.length ? `<div style="font-size:12px;color:#7a7566;margin-top:2px;">Note: ${p.notes.join(' | ')}</div>` : '';
     return `<tr>
-      <td>${s.name}<div style="font-size:11.5px;color:#a39c86;">${s.email}</div>${notesHtml}</td>
-      <td class="num">$${total.toFixed(2)}</td>
+      <td>${p.name}<div style="font-size:11.5px;color:#a39c86;">${p.email}</div>${notesHtml}</td>
+      <td class="num">$${p.total.toFixed(2)}</td>
       <td class="num" style="white-space:nowrap;">${when}</td>
     </tr>`;
   }).join('');
   peopleWrap.innerHTML = `<table class="rollup-table">
-    <thead><tr><th>Name</th><th>Est. Order Total</th><th>Submitted</th></tr></thead>
+    <thead><tr><th>Name</th><th style="text-align:right;">Est. Order Total</th><th style="text-align:right;">Submitted</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
 
 // Item-level rollup across all (or, if filtered, one participant's) submissions.
+// Grouped by item + participant, so the coordinator can see who ordered what,
+// not just the combined total across everyone.
 function renderRollup(submissions, filterName){
   const rollupWrap = document.getElementById('rollupWrap');
   const filtered = filterName
     ? submissions.filter(s => (s.name || '').toLowerCase().includes(filterName.toLowerCase()))
     : submissions;
 
-  const bySku = {};
+  const grouped = {};
   filtered.forEach(sub => {
     (sub.items || []).forEach(i => {
-      if (!bySku[i.sku]) bySku[i.sku] = { name: i.name, qty: 0, total: 0 };
-      bySku[i.sku].qty += i.qty || 0;
-      bySku[i.sku].total += (i.qty || 0) * (i.price || 0);
+      const key = i.sku + '|' + sub.name;
+      if (!grouped[key]) grouped[key] = { name: i.name, sku: i.sku, participant: sub.name, qty: 0, total: 0 };
+      grouped[key].qty += i.qty || 0;
+      grouped[key].total += (i.qty || 0) * (i.price || 0);
     });
   });
-  const skuRows = Object.entries(bySku).sort((a, b) => b[1].total - a[1].total);
+  const groupRows = Object.values(grouped).sort((a, b) => (a.name < b.name ? -1 : 1) || b.total - a.total);
 
-  if (skuRows.length === 0){
+  if (groupRows.length === 0){
     rollupWrap.innerHTML = filterName
       ? `<div class="empty-cart">No items found for "${filterName}".</div>`
       : '<div class="empty-cart">No orders submitted yet.</div>';
@@ -647,15 +658,16 @@ function renderRollup(submissions, filterName){
   }
 
   let grandTotal = 0;
-  const rows = skuRows.map(([sku, d]) => {
+  const rows = groupRows.map(d => {
     grandTotal += d.total;
-    return `<tr><td>${d.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${sku}</span></td>
+    return `<tr><td>${d.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${d.sku}</span></td>
+      <td>${d.participant}</td>
       <td class="num">${d.qty}</td><td class="num">$${d.total.toFixed(2)}</td></tr>`;
   }).join('');
 
-  rollupWrap.innerHTML = `<table class="rollup-table"><thead><tr><th>Item</th><th>Total Qty</th><th>Total $</th></tr></thead>
+  rollupWrap.innerHTML = `<table class="rollup-table"><thead><tr><th>Item</th><th>Participant</th><th style="text-align:right;">Total Qty</th><th style="text-align:right;">Total $</th></tr></thead>
       <tbody>${rows}
-      <tr><td style="font-weight:700;">Grand Total</td><td></td><td class="num" style="font-weight:700;">$${grandTotal.toFixed(2)}</td></tr>
+      <tr><td style="font-weight:700;">Grand Total</td><td></td><td></td><td class="num" style="font-weight:700;">$${grandTotal.toFixed(2)}</td></tr>
       </tbody></table>`;
 }
 
