@@ -280,12 +280,11 @@ function priceHtml(item, size){
   return `<span style="${cls}">$${item.price.toFixed(2)}</span>`;
 }
 
-// Simple single-price display for search results — a "V" badge marks volume-discount
-// eligibility instead of showing both retail and discounted numbers (too cluttered across
-// a long results list). The full strikethrough breakdown still shows in the cart/confirmation.
+// Search-result price display: "V" badge for volume-discount eligibility, plus the
+// full strikethrough retail -> discounted breakdown (same as the cart/confirmation).
 function priceHtmlSimple(item){
   const badge = item.eligible ? '<span class="v-badge" title="Volume discount eligible">V</span>' : '';
-  return `${badge}$${effectivePrice(item).toFixed(2)}`;
+  return `${badge}${priceHtml(item, 'small')}`;
 }
 
 // ---------- State ----------
@@ -328,6 +327,14 @@ function renderResults(query){
 }
 
 searchInput.addEventListener('input', (e) => renderResults(e.target.value));
+// Bring the results back when the user actually clicks into the search box,
+// not just on typing. Using 'click' (not 'focus') matters here: the Add
+// handler below calls searchInput.focus() programmatically after clearing
+// the results, and a 'focus' listener would fire from that too — immediately
+// undoing the clear. A real user click doesn't fire from .focus() in JS, so
+// 'click' cleanly distinguishes "user came back to search again" from
+// "we just returned focus after Add."
+searchInput.addEventListener('click', () => renderResults(searchInput.value));
 
 searchResults.addEventListener('click', (e) => {
   const row = e.target.closest('.result-row');
@@ -385,7 +392,7 @@ function renderCart(){
       <tr class="cart-total-row"><td colspan="3">Subtotal</td><td class="num">$${total.toFixed(2)}</td><td></td></tr>
     </tbody>
   </table>
-  <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail.</div>
+  <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail unless otherwise specified.</div>
   <div class="disclosure" style="margin-top:10px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off.</div>`;
 }
 
