@@ -228,7 +228,9 @@
       <div class="sub">Totals across every submission — this is the list for the actual Bullseye order.</div>
       <div class="field" style="max-width:320px;margin-bottom:12px;">
         <label for="participantFilter">Filter by participant</label>
-        <input type="text" id="participantFilter" placeholder="Type a name to see just their items...">
+        <select id="participantFilter">
+          <option value="">All participants</option>
+        </select>
       </div>
       <div id="rollupWrap" class="loading">Loading…</div>
     </div>
@@ -401,30 +403,35 @@ function renderCart(){
     wrap.innerHTML = '<div class="empty-cart">No items added yet — search above and click "Add."</div>';
     return;
   }
-  let total = 0;
-  let savedTotal = 0;
+  let retailGrandTotal = 0;
+  let discountGrandTotal = 0;
+  let subtotalGrandTotal = 0;
   const rows = cart.map((c, i) => {
     const unit = effectivePrice(c);
-    const ext = c.qty * unit;
-    total += ext;
-    if (c.eligible) savedTotal += c.qty * (c.price - unit);
+    const rowRetail = c.qty * c.price;
+    const rowDiscount = c.eligible ? c.qty * (c.price - unit) : 0;
+    const rowSubtotal = c.qty * unit;
+    retailGrandTotal += rowRetail;
+    discountGrandTotal += rowDiscount;
+    subtotalGrandTotal += rowSubtotal;
     return `<tr>
       <td>${c.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${c.sku}</span>
         <a href="${bullseyeSearchUrl(c)}" target="_blank" rel="noopener" title="Search for this on Bullseye's site" style="margin-left:4px;color:#a5620f;text-decoration:none;font-size:11px;">verify ↗</a></td>
       <td class="num"><input type="number" min="0" step="1" class="qty-input" data-idx="${i}" value="${c.qty}"></td>
-      <td class="num">${priceHtml(c, 'small')}</td>
-      <td class="num">$${ext.toFixed(2)}</td>
+      <td class="num">$${rowRetail.toFixed(2)}</td>
+      <td class="num" style="color:${rowDiscount > 0 ? '#3d6b4f' : 'inherit'};">${rowDiscount > 0 ? '-$' + rowDiscount.toFixed(2) : '—'}</td>
+      <td class="num" style="font-weight:600;">$${rowSubtotal.toFixed(2)}</td>
       <td><button class="remove-btn" data-idx="${i}" title="Remove">✕</button></td>
     </tr>`;
   }).join('');
-  const savedHtml = savedTotal > 0
-    ? `<tr><td colspan="3" style="color:#3d6b4f;font-size:12.5px;">Est. Guild discount savings</td><td class="num" style="color:#3d6b4f;font-size:12.5px;">-$${savedTotal.toFixed(2)}</td><td></td></tr>`
-    : '';
   wrap.innerHTML = `<table class="cart">
-    <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Ext.</th><th></th></tr></thead>
+    <thead><tr><th>Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Retail Total</th><th style="text-align:right;">Est. Discount</th><th style="text-align:right;">Est. Subtotal</th><th></th></tr></thead>
     <tbody>${rows}
-      ${savedHtml}
-      <tr class="cart-total-row"><td colspan="3">Subtotal</td><td class="num">$${total.toFixed(2)}</td><td></td></tr>
+      <tr class="cart-total-row"><td colspan="2">Est. Grand Subtotal</td>
+        <td class="num">$${retailGrandTotal.toFixed(2)}</td>
+        <td class="num" style="color:#3d6b4f;">${discountGrandTotal > 0 ? '-$' + discountGrandTotal.toFixed(2) : '—'}</td>
+        <td class="num">$${subtotalGrandTotal.toFixed(2)}</td>
+        <td></td></tr>
     </tbody>
   </table>
   <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail unless otherwise specified.</div>
@@ -515,44 +522,45 @@ function showConfirmation(order){
   const cv = document.getElementById('confirmView');
   cv.style.display = 'block';
 
-  let total = 0;
-  let savedTotal = 0;
+  let retailGrandTotal = 0;
+  let discountGrandTotal = 0;
+  let subtotalGrandTotal = 0;
   const rows = order.items.map(i => {
-    const ext = i.qty * i.price;
-    total += ext;
+    const rowRetail = i.qty * ((i.retailPrice != null) ? i.retailPrice : i.price);
     const eligible = i.retailPrice != null && i.retailPrice > i.price;
-    if (eligible) savedTotal += i.qty * (i.retailPrice - i.price);
-    const priceCell = eligible
-      ? `<span style="text-decoration:line-through;color:#a39c86;font-size:12px;">$${i.retailPrice.toFixed(2)}</span> <span style="color:#a5620f;font-weight:700;font-size:12px;">$${i.price.toFixed(2)}</span>`
-      : `<span style="font-size:12px;">$${i.price.toFixed(2)}</span>`;
+    const rowDiscount = eligible ? i.qty * (i.retailPrice - i.price) : 0;
+    const rowSubtotal = i.qty * i.price;
+    retailGrandTotal += rowRetail;
+    discountGrandTotal += rowDiscount;
+    subtotalGrandTotal += rowSubtotal;
     return `<tr>
       <td style="text-align:left;padding:6px 4px;border-bottom:1px solid #f0ead9;">${i.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${i.sku}</span></td>
-      <td style="text-align:center;padding:6px 4px;border-bottom:1px solid #f0ead9;">${i.qty}</td>
-      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;white-space:nowrap;">${priceCell}</td>
-      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;" class="mono">$${ext.toFixed(2)}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;">${i.qty}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;" class="mono">$${rowRetail.toFixed(2)}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;color:${rowDiscount > 0 ? '#3d6b4f' : 'inherit'};" class="mono">${rowDiscount > 0 ? '-$' + rowDiscount.toFixed(2) : '—'}</td>
+      <td style="text-align:right;padding:6px 4px;border-bottom:1px solid #f0ead9;font-weight:600;" class="mono">$${rowSubtotal.toFixed(2)}</td>
     </tr>`;
   }).join('');
-
-  const savedRow = savedTotal > 0
-    ? `<tr><td colspan="3" style="text-align:left;color:#3d6b4f;font-size:12.5px;padding:4px;">Est. Guild discount savings</td><td class="mono" style="text-align:right;color:#3d6b4f;font-size:12.5px;padding:4px;">-$${savedTotal.toFixed(2)}</td></tr>`
-    : '';
 
   document.getElementById('confirmSummary').innerHTML =
     `<table style="width:100%;border-collapse:collapse;">
        <thead><tr>
          <th style="text-align:left;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Item</th>
-         <th style="text-align:center;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Qty</th>
-         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Unit</th>
-         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Ext.</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Qty</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Retail Total</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Est. Discount</th>
+         <th style="text-align:right;font-size:11px;text-transform:uppercase;color:#7a7566;padding:4px;">Est. Subtotal</th>
        </tr></thead>
        <tbody>
          ${rows}
-         ${savedRow}
        </tbody>
      </table>
      ${order.notes ? `<div style="margin-top:8px;font-size:13px;color:#7a7566;text-align:left;"><strong>Notes:</strong> ${order.notes}</div>` : ''}
      <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:8px;margin-top:6px;border-top:2px solid #e4dac2;">
-       <span>Subtotal</span><span class="mono">$${total.toFixed(2)}</span>
+       <span>Est. Grand Subtotal</span><span class="mono">$${subtotalGrandTotal.toFixed(2)}</span>
+     </div>
+     <div style="display:flex;justify-content:space-between;font-size:12.5px;color:#7a7566;margin-top:4px;">
+       <span>Retail total was $${retailGrandTotal.toFixed(2)}, est. discount -$${discountGrandTotal.toFixed(2)}</span>
      </div>
      <div class="disclosure" style="text-align:left;margin-top:14px;background:#eef0f6;">
        <strong>Payment:</strong> once the group order actually arrives (not before), Venmo Kerry
@@ -603,6 +611,7 @@ async function loadSummary(){
     if (data.error) throw new Error(data.error);
 
     allSubmissions = data.submissions || [];
+    populateParticipantFilter(allSubmissions);
     renderPeopleTable(allSubmissions);
     renderRollup(allSubmissions);
 
@@ -617,6 +626,27 @@ function submissionTotal(sub){
   return (sub.items || []).reduce((s, i) => s + (i.qty || 0) * (i.price || 0), 0);
 }
 
+// Estimated guild-discount savings for a submission: sum of (retail - discounted)
+// across its items. Zero for ineligible items, since retailPrice === price there.
+function submissionDiscount(sub){
+  return (sub.items || []).reduce((s, i) => {
+    const retail = (i.retailPrice != null) ? i.retailPrice : i.price;
+    return s + (i.qty || 0) * Math.max(0, retail - (i.price || 0));
+  }, 0);
+}
+
+// Fill the filter dropdown with every distinct participant name that's
+// actually submitted an order, so people pick from a real list instead of
+// having to type a name correctly.
+function populateParticipantFilter(submissions){
+  const select = document.getElementById('participantFilter');
+  const current = select.value;
+  const names = Array.from(new Set(submissions.map(s => s.name).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  select.innerHTML = '<option value="">All participants</option>' +
+    names.map(n => `<option value="${n}">${n}</option>`).join('');
+  if (names.includes(current)) select.value = current;
+}
+
 // One row per submission — deliberately NOT consolidated by person, so repeat
 // orders from the same guild member each show up as their own line.
 function renderPeopleTable(submissions){
@@ -629,8 +659,9 @@ function renderPeopleTable(submissions){
   const byPerson = {};
   submissions.forEach(s => {
     const key = (s.email || s.name || '').toLowerCase();
-    if (!byPerson[key]) byPerson[key] = { name: s.name, email: s.email, total: 0, lastSubmitted: s.timestamp, notes: [] };
+    if (!byPerson[key]) byPerson[key] = { name: s.name, email: s.email, total: 0, discount: 0, lastSubmitted: s.timestamp, notes: [] };
     byPerson[key].total += submissionTotal(s);
+    byPerson[key].discount += submissionDiscount(s);
     if (new Date(s.timestamp) > new Date(byPerson[key].lastSubmitted)) byPerson[key].lastSubmitted = s.timestamp;
     if (s.notes) byPerson[key].notes.push(s.notes);
   });
@@ -639,13 +670,14 @@ function renderPeopleTable(submissions){
     const when = p.lastSubmitted ? new Date(p.lastSubmitted).toLocaleString() : '';
     const notesHtml = p.notes.length ? `<div style="font-size:12px;color:#7a7566;margin-top:2px;">Note: ${p.notes.join(' | ')}</div>` : '';
     return `<tr>
-      <td>${p.name}<div style="font-size:11.5px;color:#a39c86;">${p.email}</div>${notesHtml}</td>
+      <td style="text-align:left;">${p.name}<div style="font-size:11.5px;color:#a39c86;">${p.email}</div>${notesHtml}</td>
       <td class="num">$${p.total.toFixed(2)}</td>
+      <td class="num" style="color:#3d6b4f;">$${p.discount.toFixed(2)}</td>
       <td class="num" style="white-space:nowrap;">${when}</td>
     </tr>`;
   }).join('');
   peopleWrap.innerHTML = `<table class="rollup-table">
-    <thead><tr><th>Name</th><th style="text-align:right;">Est. Order Total</th><th style="text-align:right;">Submitted</th></tr></thead>
+    <thead><tr><th style="text-align:left;">Name</th><th style="text-align:right;">Est. Order Total</th><th style="text-align:right;">Est. Discount</th><th style="text-align:right;">Submitted</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -656,19 +688,22 @@ function renderPeopleTable(submissions){
 function renderRollup(submissions, filterName){
   const rollupWrap = document.getElementById('rollupWrap');
   const filtered = filterName
-    ? submissions.filter(s => (s.name || '').toLowerCase().includes(filterName.toLowerCase()))
+    ? submissions.filter(s => s.name === filterName)
     : submissions;
 
   const grouped = {};
   filtered.forEach(sub => {
     (sub.items || []).forEach(i => {
       const key = i.sku + '|' + sub.name;
-      if (!grouped[key]) grouped[key] = { name: i.name, sku: i.sku, participant: sub.name, qty: 0, total: 0 };
+      if (!grouped[key]) grouped[key] = { name: i.name, sku: i.sku, participant: sub.name, qty: 0, total: 0, discount: 0 };
+      const retail = (i.retailPrice != null) ? i.retailPrice : i.price;
       grouped[key].qty += i.qty || 0;
       grouped[key].total += (i.qty || 0) * (i.price || 0);
+      grouped[key].discount += (i.qty || 0) * Math.max(0, retail - (i.price || 0));
     });
   });
-  const groupRows = Object.values(grouped).sort((a, b) => (a.name < b.name ? -1 : 1) || b.total - a.total);
+  const groupRows = Object.values(grouped).sort((a, b) =>
+    (a.participant < b.participant ? -1 : a.participant > b.participant ? 1 : 0) || (a.name < b.name ? -1 : 1));
 
   if (groupRows.length === 0){
     rollupWrap.innerHTML = filterName
@@ -678,21 +713,25 @@ function renderRollup(submissions, filterName){
   }
 
   let grandTotal = 0;
+  let grandDiscount = 0;
   const rows = groupRows.map(d => {
     grandTotal += d.total;
-    return `<tr><td>${d.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${d.sku}</span></td>
-      <td>${d.participant}</td>
-      <td class="num">${d.qty}</td><td class="num">$${d.total.toFixed(2)}</td></tr>`;
+    grandDiscount += d.discount;
+    return `<tr><td>${d.participant}</td>
+      <td>${d.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${d.sku}</span></td>
+      <td class="num">${d.qty}</td>
+      <td class="num">$${d.total.toFixed(2)}</td>
+      <td class="num" style="color:#3d6b4f;">$${d.discount.toFixed(2)}</td></tr>`;
   }).join('');
 
-  rollupWrap.innerHTML = `<table class="rollup-table"><thead><tr><th>Item</th><th>Participant</th><th style="text-align:right;">Total Qty</th><th style="text-align:right;">Total $</th></tr></thead>
+  rollupWrap.innerHTML = `<table class="rollup-table"><thead><tr><th>Participant</th><th>Item</th><th style="text-align:right;">Total Qty</th><th style="text-align:right;">Total $</th><th style="text-align:right;">Est. Discount</th></tr></thead>
       <tbody>${rows}
-      <tr><td style="font-weight:700;">Grand Total</td><td></td><td></td><td class="num" style="font-weight:700;">$${grandTotal.toFixed(2)}</td></tr>
+      <tr><td></td><td style="font-weight:700;">Grand Total</td><td></td><td class="num" style="font-weight:700;">$${grandTotal.toFixed(2)}</td><td class="num" style="font-weight:700;color:#3d6b4f;">$${grandDiscount.toFixed(2)}</td></tr>
       </tbody></table>`;
 }
 
-document.getElementById('participantFilter').addEventListener('input', (e) => {
-  renderRollup(allSubmissions, e.target.value.trim());
+document.getElementById('participantFilter').addEventListener('change', (e) => {
+  renderRollup(allSubmissions, e.target.value);
 });
 </script>
 </body>
