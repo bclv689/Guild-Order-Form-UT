@@ -388,6 +388,58 @@ function bullseyeSearchUrl(item){
 // ---------- State ----------
 let cart = []; // {sku, name, category, price, qty}
 
+// ---------- Draft persistence ----------
+// Saves the in-progress cart + name/email to this browser so an accidental
+// refresh or closed tab doesn't lose everything someone just built. This is
+// a real hosted site (not a sandboxed preview), so localStorage works fine
+// here — it's local to this browser only, not shared with anyone else.
+const DRAFT_KEY = 'guildOrderDraft';
+
+function saveDraft(){
+  try {
+    const draft = {
+      cart: cart,
+      name: document.getElementById('nameInput').value,
+      email: document.getElementById('emailInput').value,
+      notes: document.getElementById('notesInput').value
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch (err) { /* private browsing / storage disabled — fail silently, not critical */ }
+}
+
+function loadDraft(){
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (draft.cart && draft.cart.length){
+      cart = draft.cart;
+      renderCart();
+    }
+    if (draft.name) document.getElementById('nameInput').value = draft.name;
+    if (draft.email) document.getElementById('emailInput').value = draft.email;
+    if (draft.notes) document.getElementById('notesInput').value = draft.notes;
+  } catch (err) { /* corrupted or missing draft — just start fresh */ }
+}
+
+function clearDraft(){
+  try { localStorage.removeItem(DRAFT_KEY); } catch (err) { /* ignore */ }
+}
+
+// Warn before leaving the page if there's anything in the cart that hasn't
+// been submitted yet — most browsers show a generic "leave site?" prompt.
+window.addEventListener('beforeunload', (e) => {
+  if (cart.length > 0){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+loadDraft();
+['nameInput', 'emailInput', 'notesInput'].forEach(id => {
+  document.getElementById(id).addEventListener('input', saveDraft);
+});
+
 // ---------- Search ----------
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
@@ -493,6 +545,7 @@ function renderCart(){
   const wrap = document.getElementById('cartWrap');
   if (cart.length === 0){
     wrap.innerHTML = '<div class="empty-cart">No items added yet — search above and click "Add."</div>';
+    clearDraft();
     return;
   }
   let retailGrandTotal = 0;
@@ -528,6 +581,7 @@ function renderCart(){
   </table>
   <div class="hint">Pricing reflects the guild's volume discount on eligible items (sheet glass, frit, stringer, rod). Tools & supplies are shown at retail unless otherwise specified.</div>
   <div class="disclosure" style="margin-top:10px;">Prices shown are estimates based on Bullseye's published catalog and may not reflect current pricing. Please verify pricing on <a href="https://shop.bullseyeglass.com" target="_blank" rel="noopener">shop.bullseyeglass.com</a> and let the order coordinator know if anything looks off.</div>`;
+  saveDraft();
 }
 
 document.getElementById('cartWrap').addEventListener('input', (e) => {
@@ -600,7 +654,10 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
       });
       confirmed = true;
     }
-    if (confirmed) showConfirmation(order);
+    if (confirmed) {
+      clearDraft();
+      showConfirmation(order);
+    }
   } catch (err) {
     errEl.textContent = 'Submit failed: ' + (err && err.message ? err.message : String(err));
     console.error(err);
