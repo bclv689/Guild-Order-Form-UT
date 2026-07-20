@@ -75,6 +75,11 @@
   .result-row:last-child{ border-bottom:none; }
   .result-row:hover{ background:#f4eddb; }
   .swatch{ width:16px; height:16px; border-radius:50%; flex-shrink:0; border:1px solid rgba(0,0,0,0.15); }
+  .swatch.iridescent{
+    background-image: conic-gradient(from 180deg,
+      rgba(255,0,140,0.32), rgba(255,200,0,0.32), rgba(60,220,120,0.32),
+      rgba(0,170,255,0.32), rgba(170,60,255,0.32), rgba(255,0,140,0.32));
+  }
   .result-name{ flex:1; font-size:13.8px; }
   .result-cat{ font-size:11px; color:var(--muted); margin-right:6px; }
   .result-price{ font-family:'IBM Plex Mono',monospace; font-size:13px; color:#4a4636; white-space:nowrap; }
@@ -338,14 +343,36 @@ const PRIMARY_COLOR_MAP = {"almond": "#eedbbd", "amethyst": "#5f3759", "aqua blu
 // double-rolled — Frit..."). This is precise, built directly from the actual
 // 239 distinct color names in the catalog. Falls back to the looser keyword
 // scan for anything unusual, then a neutral gray dot if nothing matches.
-function swatchColor(name){
-  const lower = name.toLowerCase();
-  const primary = lower.split(/,| —/)[0].trim();
-  if (PRIMARY_COLOR_MAP[primary]) return PRIMARY_COLOR_MAP[primary];
+const NEUTRAL_PRIMARIES = new Set(['clear', 'white', 'crystal clear']);
+
+// Looks up a color for a given text fragment: exact match first (most
+// precise), then substring match against both color dictionaries (catches
+// cases like "sunflower yellow opal" against a "sunflower yellow" key).
+function lookupColor(text){
+  if (PRIMARY_COLOR_MAP[text]) return PRIMARY_COLOR_MAP[text];
+  for (const key in PRIMARY_COLOR_MAP){
+    if (text.includes(key)) return PRIMARY_COLOR_MAP[key];
+  }
   for (const [key, hex] of COLOR_MAP){
-    if (lower.includes(key)) return hex;
+    if (text.includes(key)) return hex;
   }
   return null;
+}
+
+function swatchColor(name){
+  const lower = name.toLowerCase();
+  const parts = lower.split(/,| —/).map(p => p.trim()).filter(Boolean);
+  const primary = parts[0] || '';
+
+  // Streaky/Collage mixes often list a neutral base first (e.g. "Clear,
+  // sunflower yellow opal, double-rolled") — the second color is the more
+  // visually meaningful one for a quick-scan swatch, so prefer it here.
+  if (NEUTRAL_PRIMARIES.has(primary) && parts.length > 1){
+    const secondaryColor = lookupColor(parts[1]);
+    if (secondaryColor) return secondaryColor;
+  }
+
+  return lookupColor(primary) || lookupColor(lower);
 }
 
 // 50% volume-discount pricing. Eligible categories only (sheet glass, frit,
@@ -463,9 +490,10 @@ function renderResults(query){
 
   searchResults.innerHTML = matches.map((item, i) => {
     const color = swatchColor(item.name);
+    const isIridescent = /iridescent/i.test(item.name) ? ' iridescent' : '';
     const swatchHtml = color
-      ? `<span class="swatch" style="background:${color}"></span>`
-      : `<span class="swatch" style="background:#ddd6c2"></span>`;
+      ? `<span class="swatch${isIridescent}" style="background-color:${color}"></span>`
+      : `<span class="swatch${isIridescent}" style="background-color:#ddd6c2"></span>`;
     return `<div class="result-row" data-idx="${CATALOG.indexOf(item)}">
         ${swatchHtml}
         <span class="result-cat">${item.category}</span>
