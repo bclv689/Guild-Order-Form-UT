@@ -225,6 +225,7 @@
   <div id="tab-order">
 
     <div id="closedBanner" style="display:none;background:#fdecea;border:1px solid #f0b8ae;color:#8a3a2a;padding:14px 18px;border-radius:10px;margin-bottom:18px;font-size:14px;"></div>
+    <div id="editingBanner" style="display:none;background:#eef0f6;border:1px solid #c7cee0;color:#233863;padding:14px 18px;border-radius:10px;margin-bottom:18px;font-size:14px;"></div>
 
     <div id="orderForm">
       <div class="card">
@@ -288,8 +289,8 @@
     <div id="confirmView" style="display:none;" class="card">
       <div class="confirm-wrap">
         <div class="check">✓</div>
-        <h2>Order submitted</h2>
-        <p class="sub" style="margin-top:6px;">Thanks — your order is in the shared list.</p>
+        <h2 id="confirmHeading">Order submitted</h2>
+        <p class="sub" id="confirmSubtext" style="margin-top:6px;">Thanks — your order is in the shared list.</p>
         <div class="confirm-summary" id="confirmSummary"></div>
         <div style="margin-top:20px;">
           <button class="btn-secondary" id="submitAnotherBtn">Submit another order</button>
@@ -786,14 +787,19 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   if (!email || !email.includes('@')){ errEl.textContent = 'Please enter a valid email.'; return; }
   if (cart.length === 0 && !notes){ errEl.textContent = 'Add at least one item, or describe one in the notes box.'; return; }
 
+  const isEditing = editingOrderEmail !== null;
   const order = {
     name, email, notes,
     items: cart.map(c => ({sku: c.sku, name: c.name, category: c.category, price: effectivePrice(c), retailPrice: c.price, qty: c.qty})),
     submittedAt: new Date().toISOString()
   };
+  if (isEditing){
+    order.action = 'editSubmit';
+    order.confirmEmail = editingOrderEmail;
+  }
 
   const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = 'Submitting…';
+  btn.disabled = true; btn.textContent = isEditing ? 'Updating…' : 'Submitting…';
 
   try {
     if (WEBAPP_URL.indexOf('PASTE_YOUR') !== -1) {
@@ -827,21 +833,27 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     }
     if (confirmed) {
       clearDraft();
-      showConfirmation(order);
+      editingOrderEmail = null;
+      document.getElementById('editingBanner').style.display = 'none';
+      showConfirmation(order, isEditing);
     }
   } catch (err) {
     errEl.textContent = 'Submit failed: ' + (err && err.message ? err.message : String(err));
     console.error(err);
   } finally {
-    btn.disabled = false; btn.textContent = 'Submit Order';
+    btn.disabled = false; btn.textContent = (editingOrderEmail !== null) ? 'Update Order' : 'Submit Order';
   }
 });
 
-function showConfirmation(order){
+function showConfirmation(order, isEditing){
   document.getElementById('orderForm').style.display = 'none';
   const cv = document.getElementById('confirmView');
   cv.style.display = 'block';
   lastOrderContact = { name: order.name, email: order.email };
+  document.getElementById('confirmHeading').textContent = isEditing ? 'Order updated' : 'Order submitted';
+  document.getElementById('confirmSubtext').textContent = isEditing
+    ? "Thanks — your order has been updated in the shared list. You'll get an email showing what changed."
+    : 'Thanks — your order is in the shared list.';
 
   let retailGrandTotal = 0;
   let discountGrandTotal = 0;
@@ -897,6 +909,11 @@ let lastOrderContact = { name: '', email: '' };
 
 document.getElementById('submitAnotherBtn').addEventListener('click', () => {
   cart = [];
+  editingOrderEmail = null;
+  document.getElementById('editingBanner').style.display = 'none';
+  document.getElementById('submitBtn').textContent = 'Submit Order';
+  document.getElementById('nameInput').value = '';
+  document.getElementById('emailInput').value = '';
   document.getElementById('notesInput').value = '';
   renderCart();
   document.getElementById('confirmView').style.display = 'none';
@@ -949,17 +966,18 @@ document.getElementById('submitFeedbackBtn').addEventListener('click', async () 
 });
 
 // ---------- Tabs ----------
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const tab = btn.dataset.tab;
-    document.getElementById('tab-order').style.display = tab === 'order' ? 'block' : 'none';
-    document.getElementById('tab-summary').style.display = tab === 'summary' ? 'block' : 'none';
-    document.getElementById('tab-fulfillment').style.display = tab === 'fulfillment' ? 'block' : 'none';
-    if (tab === 'summary') loadSummary();
-    if (tab === 'fulfillment') loadFulfillment();
+function switchToTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
   });
+  document.getElementById('tab-order').style.display = tab === 'order' ? 'block' : 'none';
+  document.getElementById('tab-summary').style.display = tab === 'summary' ? 'block' : 'none';
+  document.getElementById('tab-fulfillment').style.display = tab === 'fulfillment' ? 'block' : 'none';
+  if (tab === 'summary') loadSummary();
+  if (tab === 'fulfillment') loadFulfillment();
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchToTab(btn.dataset.tab));
 });
 
 // ---------- Summary ----------
@@ -1034,6 +1052,62 @@ function getConsolidatedItemsForEmail(email){
     });
   });
   return Object.values(bySku).sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+// ---------- Editing an existing order ----------
+let editingOrderEmail = null; // non-null while actively editing someone's prior order
+
+function startEditingOrder(idx, email, name){
+  const enteredEmail = document.getElementById(`editEmail-${idx}`).value.trim();
+  const errEl = document.getElementById(`editError-${idx}`);
+  errEl.textContent = '';
+
+  if (!enteredEmail){
+    errEl.textContent = 'Enter the email you used to submit this order.';
+    return;
+  }
+  if (enteredEmail.toLowerCase() !== email.toLowerCase()){
+    errEl.textContent = "That email doesn't match this order.";
+    return;
+  }
+
+  const items = getConsolidatedItemsForEmail(email);
+  // Rebuild cart entries from the current catalog (not the old snapshot) so
+  // pricing/eligibility reflects anything that's changed since they first ordered.
+  cart = items.map(i => {
+    const catalogItem = CATALOG.find(c => c.sku === i.sku);
+    return catalogItem ? { ...catalogItem, qty: i.qty } : { sku: i.sku, name: i.name, category: '', price: i.price, eligible: false, qty: i.qty };
+  });
+
+  editingOrderEmail = email;
+  document.getElementById('nameInput').value = name;
+  document.getElementById('emailInput').value = email;
+  document.getElementById('notesInput').value = '';
+
+  const banner = document.getElementById('editingBanner');
+  banner.style.display = 'block';
+  banner.innerHTML = `Editing ${name}'s order — their previous items are loaded into the cart below. Add, remove, or adjust quantities, then click "Update Order." <a href="#" id="cancelEditLink" style="color:#233863;font-weight:600;">Cancel and start fresh</a>`;
+  document.getElementById('cancelEditLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    cancelEditingOrder();
+  });
+
+  document.getElementById('submitBtn').textContent = 'Update Order';
+  switchToTab('order');
+  renderCart();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEditingOrder(){
+  editingOrderEmail = null;
+  cart = [];
+  document.getElementById('nameInput').value = '';
+  document.getElementById('emailInput').value = '';
+  document.getElementById('notesInput').value = '';
+  document.getElementById('editingBanner').style.display = 'none';
+  document.getElementById('submitBtn').textContent = 'Submit Order';
+  renderCart();
+  clearDraft();
 }
 
 function csvEscape(val){
@@ -1128,9 +1202,16 @@ function renderPeopleTable(submissions){
       <td class="num" style="color:#3d6b4f;">$${p.discount.toFixed(2)}</td>
       <td class="num" style="white-space:nowrap;">${when}</td>
       <td style="text-align:right;">
+        <a href="#" class="edit-order-link" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="color:var(--cobalt);font-size:12px;text-decoration:none;margin-right:8px;">Edit</a>
         <a href="#" class="print-order-link" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="color:var(--cobalt);font-size:12px;text-decoration:none;margin-right:8px;">Print</a>
         <a href="#" class="csv-order-link" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="color:var(--cobalt);font-size:12px;text-decoration:none;margin-right:8px;">CSV</a>
         <a href="#" class="remove-order-link" data-idx="${i}" style="color:#b3432b;font-size:12px;text-decoration:none;">Remove</a>
+        <div id="editConfirm-${i}" style="display:none;margin-top:6px;">
+          <input type="email" id="editEmail-${i}" placeholder="Type your email to confirm" style="font-size:12px;padding:5px 7px;width:180px;">
+          <button type="button" class="edit-confirm-btn" data-idx="${i}" data-email="${p.email}" data-name="${p.name}" style="font-size:12px;padding:5px 9px;background:var(--cobalt);color:#fff;border:none;border-radius:6px;cursor:pointer;">Confirm</button>
+          <button type="button" class="edit-cancel-btn" data-idx="${i}" style="font-size:12px;padding:5px 9px;background:none;border:1px solid #d8cfb4;border-radius:6px;cursor:pointer;">Cancel</button>
+          <div id="editError-${i}" class="error-msg" style="margin-top:4px;"></div>
+        </div>
         <div id="removeConfirm-${i}" style="display:none;margin-top:6px;">
           <input type="email" id="removeEmail-${i}" placeholder="Type your email to confirm" style="font-size:12px;padding:5px 7px;width:180px;">
           <button type="button" class="remove-confirm-btn" data-idx="${i}" data-email="${p.email}" style="font-size:12px;padding:5px 9px;background:#b3432b;color:#fff;border:none;border-radius:6px;cursor:pointer;">Confirm</button>
@@ -1175,6 +1256,28 @@ function renderPeopleTable(submissions){
       e.preventDefault();
       downloadParticipantCSV(link.dataset.email, link.dataset.name);
     });
+  });
+
+  // "Edit" also reveals an inline email-confirmation box first — same
+  // speed bump as Remove, so people can only load and resubmit their own
+  // order, not silently take over and change someone else's.
+  peopleWrap.querySelectorAll('.edit-order-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById(`editConfirm-${link.dataset.idx}`).style.display = 'block';
+      link.style.display = 'none';
+    });
+  });
+  peopleWrap.querySelectorAll('.edit-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = btn.dataset.idx;
+      document.getElementById(`editConfirm-${idx}`).style.display = 'none';
+      const link = peopleWrap.querySelector(`.edit-order-link[data-idx="${idx}"]`);
+      if (link) link.style.display = 'inline';
+    });
+  });
+  peopleWrap.querySelectorAll('.edit-confirm-btn').forEach(btn => {
+    btn.addEventListener('click', () => startEditingOrder(btn.dataset.idx, btn.dataset.email, btn.dataset.name));
   });
 }
 
