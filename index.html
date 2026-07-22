@@ -142,6 +142,65 @@
   .person-block .meta{ font-size:12px; color:var(--muted); margin-bottom:8px; }
   .loading{ text-align:center; padding:30px; color:var(--muted); }
   .disclosure{ font-size:12px; color:var(--muted); background:#f4eddb; border-radius:7px; padding:9px 11px; margin-top:10px; }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 640px){
+    /* iOS Safari auto-zooms the page when focusing an input smaller than
+       16px — bumping these up avoids that jarring zoom-in on tap. */
+    #searchInput, #nameInput, #emailInput, #notesInput, .qty-input, #feedbackInput{
+      font-size:16px;
+    }
+
+    /* Search results: let the row wrap into two lines instead of squeezing
+       name + price + Add into one cramped line, and make Add a proper
+       full-width touch target instead of a tiny button. */
+    .result-row{
+      flex-wrap:wrap; padding:12px;
+    }
+    .result-name{
+      flex:1 1 100%; order:1; font-size:14.5px; line-height:1.4;
+    }
+    .result-cat{
+      order:0;
+    }
+    .swatch{ order:0; }
+    .result-price{
+      order:2; flex:1; font-size:14px;
+    }
+    .result-add{
+      order:3; padding:10px 18px; font-size:13.5px; min-height:40px;
+    }
+
+    /* Cart: collapse the table into stacked cards. Each row becomes its own
+       block, each cell becomes its own line with a small label — much easier
+       to read and tap than a 6-column table squeezed onto a narrow screen. */
+    table.cart thead{ display:none; }
+    table.cart, table.cart tbody, table.cart tr, table.cart td{ display:block; width:100%; }
+    table.cart tr{
+      border:1px solid var(--sand-line); border-radius:10px; padding:12px; margin-bottom:12px;
+    }
+    table.cart td{
+      display:flex; justify-content:space-between; align-items:center;
+      padding:7px 0; border-bottom:1px solid #f2ece0; text-align:right;
+    }
+    table.cart td:first-child{
+      display:block; text-align:left; border-bottom:1px solid #f2ece0; padding-bottom:10px; margin-bottom:4px;
+    }
+    table.cart td[data-label]::before{
+      content: attr(data-label); font-size:11.5px; text-transform:uppercase;
+      letter-spacing:.03em; color:var(--muted); font-weight:600;
+    }
+    table.cart td:last-child{ border-bottom:none; justify-content:flex-end; padding-top:4px; }
+    .qty-input{
+      width:88px; padding:10px 8px; font-size:16px; min-height:40px;
+    }
+    .remove-btn{ font-size:20px; padding:6px 10px; }
+    .cart-total-row{
+      display:flex; flex-direction:column; border:2px solid var(--sand-line) !important;
+      border-radius:10px; padding:12px; background:#faf6ea;
+    }
+    .cart-total-row td:first-child{ border-bottom:none; font-weight:700; padding-bottom:6px; }
+  }
 </style>
 </head>
 <body>
@@ -234,6 +293,15 @@
         <div class="confirm-summary" id="confirmSummary"></div>
         <div style="margin-top:20px;">
           <button class="btn-secondary" id="submitAnotherBtn">Submit another order</button>
+        </div>
+        <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--sand-line);text-align:left;">
+          <h3 style="font-size:15px;margin:0 0 4px;">Found a bug, or something look off?</h3>
+          <p class="sub" style="margin:0 0 10px;">Let us know — this goes straight to the person who maintains this app.</p>
+          <textarea id="feedbackInput" placeholder="What happened? Any detail helps." style="width:100%;min-height:70px;box-sizing:border-box;padding:10px 12px;border:1px solid var(--sand-line);border-radius:8px;font-family:inherit;font-size:13.5px;resize:vertical;"></textarea>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+            <button type="button" class="btn-secondary" id="submitFeedbackBtn">Send feedback</button>
+            <span id="feedbackStatus" style="font-size:12.5px;color:#7a7566;"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -612,10 +680,10 @@ function renderCart(){
         <span>${c.name}<br><span class="mono" style="color:#a39c86;font-size:11px;">${c.sku}</span>
         <a href="${bullseyeSearchUrl(c)}" target="_blank" rel="noopener" title="Search for this on Bullseye's site" style="margin-left:4px;color:#a5620f;text-decoration:none;font-size:11px;">verify ↗</a></span>
       </td>
-      <td class="num"><input type="number" min="0" step="1" class="qty-input" data-idx="${i}" value="${c.qty}"></td>
-      <td class="num" id="cartRetail-${i}">$${rowRetail.toFixed(2)}</td>
-      <td class="num" id="cartDiscount-${i}" style="color:${rowDiscount > 0 ? '#3d6b4f' : 'inherit'};">${rowDiscount > 0 ? '-$' + rowDiscount.toFixed(2) : '—'}</td>
-      <td class="num" id="cartSubtotal-${i}" style="font-weight:600;">$${rowSubtotal.toFixed(2)}</td>
+      <td class="num" data-label="Qty"><input type="number" min="0" step="1" class="qty-input" data-idx="${i}" value="${c.qty}"></td>
+      <td class="num" data-label="Retail Total" id="cartRetail-${i}">$${rowRetail.toFixed(2)}</td>
+      <td class="num" data-label="Est. Discount" id="cartDiscount-${i}" style="color:${rowDiscount > 0 ? '#3d6b4f' : 'inherit'};">${rowDiscount > 0 ? '-$' + rowDiscount.toFixed(2) : '—'}</td>
+      <td class="num" data-label="Est. Subtotal" id="cartSubtotal-${i}" style="font-weight:600;">$${rowSubtotal.toFixed(2)}</td>
       <td><button class="remove-btn" data-idx="${i}" title="Remove">✕</button></td>
     </tr>`;
   }).join('');
@@ -773,6 +841,7 @@ function showConfirmation(order){
   document.getElementById('orderForm').style.display = 'none';
   const cv = document.getElementById('confirmView');
   cv.style.display = 'block';
+  lastOrderContact = { name: order.name, email: order.email };
 
   let retailGrandTotal = 0;
   let discountGrandTotal = 0;
@@ -824,6 +893,8 @@ function showConfirmation(order){
      <div class="disclosure" style="text-align:left;margin-top:10px;">Need to change or remove this order? Reach out to the order coordinator — they can adjust it in the shared list for you.</div>`;
 }
 
+let lastOrderContact = { name: '', email: '' };
+
 document.getElementById('submitAnotherBtn').addEventListener('click', () => {
   cart = [];
   document.getElementById('notesInput').value = '';
@@ -832,6 +903,49 @@ document.getElementById('submitAnotherBtn').addEventListener('click', () => {
   document.getElementById('orderForm').style.display = 'block';
   document.getElementById('searchInput').value = '';
   searchResults.innerHTML = '';
+});
+
+document.getElementById('submitFeedbackBtn').addEventListener('click', async () => {
+  const input = document.getElementById('feedbackInput');
+  const status = document.getElementById('feedbackStatus');
+  const message = input.value.trim();
+  if (!message){
+    status.textContent = 'Type something first.';
+    status.style.color = '#b3432b';
+    return;
+  }
+  const btn = document.getElementById('submitFeedbackBtn');
+  btn.disabled = true;
+  status.textContent = 'Sending…';
+  status.style.color = '#7a7566';
+
+  const payload = JSON.stringify({ action: 'feedback', name: lastOrderContact.name, email: lastOrderContact.email, message: message });
+  try {
+    const resp = await fetch(WEBAPP_URL, { method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: payload });
+    const result = await resp.json();
+    if (result.success){
+      input.value = '';
+      status.textContent = 'Thanks — feedback sent.';
+      status.style.color = '#3d6b4f';
+    } else {
+      status.textContent = result.error || 'Could not send feedback.';
+      status.style.color = '#b3432b';
+    }
+  } catch (err) {
+    // Same Apps Script redirect/CORS quirk as everywhere else — fall back to
+    // a blind no-cors request and assume the best, since we can't read the response.
+    try {
+      await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: payload });
+      input.value = '';
+      status.textContent = 'Thanks — feedback sent.';
+      status.style.color = '#3d6b4f';
+    } catch (e2) {
+      status.textContent = 'Could not send feedback — try again in a moment.';
+      status.style.color = '#b3432b';
+    }
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ---------- Tabs ----------
